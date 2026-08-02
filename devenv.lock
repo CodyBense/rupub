@@ -3,11 +3,11 @@
     "devenv": {
       "locked": {
         "dir": "src/modules",
-        "lastModified": 1785185389,
-        "narHash": "sha256-sOArp/OaxpyYJhGKULnKVQBRJEsNvYCGzO12ugUOAXs=",
+        "lastModified": 1785616853,
+        "narHash": "sha256-WKA53CfbSwXh/QuGHc3gsWoLNHYaKw4xgvkc9ceRgUA=",
         "owner": "cachix",
         "repo": "devenv",
-        "rev": "0bf6765ce7071d98ed137ecfe02d1e435007c971",
+        "rev": "a3feed9ca96c66548496e8af2804d2a3a045d22e",
         "type": "github"
       },
       "original": {
