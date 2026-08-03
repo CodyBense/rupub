@@ -1,6 +1,12 @@
 mod book;
 mod files;
 use epub::doc::EpubDoc;
+use image::DynamicImage;
+use ratatui_image::{
+    StatefulImage,
+    picker::Picker,
+    protocol::{Protocol, StatefulProtocol},
+};
 use scraper::{Html, Selector};
 use std::{
     fs::{self, File},
@@ -23,16 +29,19 @@ use ratatui::{
 struct App {
     books: Vec<String>,
     list_state: ListState,
+    image: StatefulProtocol,
 }
 
 impl App {
     fn new() -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
+        let mut image = create_image().unwrap();
 
         App {
             books: fill_list().expect("No Books"),
             list_state,
+            image,
         }
     }
 
@@ -115,16 +124,7 @@ fn render_middle_layer(frame: &mut Frame, outer_layout: &Rc<[Rect]>, app: &mut A
         .map(|book| format!("Selected: {}\n\nBook content would go here...", book))
         .unwrap_or_else(|| "No book selected".to_string());
 
-    frame.render_widget(
-        Paragraph::new(preview_text).block(
-            Block::new()
-                .title("Preview")
-                .bold()
-                .fg(Color::Blue)
-                .borders(Borders::ALL),
-        ),
-        middle_layout[1],
-    );
+    frame.render_stateful_widget(StatefulImage::default(), middle_layout[1], &mut app.image);
 }
 
 fn render_bottom_layer(frame: &mut Frame, outer_layout: &Rc<[Rect]>) {
@@ -149,13 +149,13 @@ fn fill_list() -> std::io::Result<Vec<String>> {
     Ok(books)
 }
 
-// fn main() -> Result<()> {
-//     color_eyre::install()?;
-//     let terminal = ratatui::init();
-//     let result = run(terminal);
-//     ratatui::restore();
-//     result
-// }
+fn main() -> Result<()> {
+    color_eyre::install()?;
+    let terminal = ratatui::init();
+    let result = run(terminal);
+    ratatui::restore();
+    result
+}
 
 fn run(mut terminal: DefaultTerminal) -> Result<()> {
     let mut app = App::new();
@@ -166,8 +166,14 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
         if let Event::Key(key) = event::read()? {
             match key.code {
                 KeyCode::Char('q') => break Ok(()),
-                KeyCode::Down | KeyCode::Char('j') => app.next(),
-                KeyCode::Up | KeyCode::Char('k') => app.previous(),
+                KeyCode::Down | KeyCode::Char('j') => {
+                    app.next();
+                    create_cover(app.selected_book().unwrap());
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    app.previous();
+                    create_cover(app.selected_book().unwrap());
+                }
                 KeyCode::Enter => {
                     if let Some(book) = app.selected_book() {
                         // open book view here
@@ -180,6 +186,7 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
 }
 
 fn render(frame: &mut Frame, app: &mut App) {
+    app.image = create_image().expect("Cover image file to exist");
     let outer_layout = Layout::default()
         .direction(Direction::Vertical)
         .margin(0)
@@ -195,13 +202,18 @@ fn render(frame: &mut Frame, app: &mut App) {
     render_bottom_layer(frame, &outer_layout);
 }
 
-fn main() {
-    let books = files::list_books().unwrap();
+fn create_image() -> Result<StatefulProtocol> {
+    let mut picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
+    let img = image::ImageReader::open("/tmp/cover.jpeg")?.decode()?;
+    let image_state = picker.new_resize_protocol(img);
+    Ok(image_state)
+}
 
-    for book in books {
-        println!("{}", book);
-    }
-    let mut doc = book::open_book("./src/test.epub");
-
+fn create_cover(book_name: &String) {
+    let path = format!(
+        "/home/cody/workspaces/github/CodyBense/rupub/books/{}.epub",
+        book_name
+    );
+    let mut doc = book::open_book(path.as_str());
     book::get_cover(&mut doc);
 }
