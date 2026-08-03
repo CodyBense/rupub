@@ -29,7 +29,8 @@ pub fn parse_chapter_content(content: String) -> String {
 pub fn get_cover(doc: &mut EpubDoc<BufReader<File>>) {
     let cover_data = doc.get_cover().unwrap();
 
-    let f = fs::File::create("/tmp/cover.png");
+    let f = fs::File::create("/tmp/cover.jpeg");
+
     let mut f = f.unwrap();
     let resp = f.write_all(&cover_data.0);
 }
