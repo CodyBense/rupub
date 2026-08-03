@@ -2206,6 +2206,7 @@ dependencies = [
  "color-eyre",
  "crossterm",
  "epub",
+ "image",
  "ratatui",
  "ratatui-image",
  "scraper",
