@@ -46,7 +46,6 @@ impl App {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
         let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
-        let mut image = create_image(&picker).unwrap();
         let image = create_image(&picker).unwrap();
 
         App {
@@ -222,7 +221,6 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
 fn render(frame: &mut Frame, app: &mut App) {
     match app.layout_state {
         LayoutState::List => {
-            app.image = create_image(&app.picker).expect("Cover image file to exist");
             let outer_layout = Layout::default()
                 .direction(Direction::Vertical)
                 .margin(0)
