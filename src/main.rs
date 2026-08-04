@@ -32,6 +32,7 @@ struct App {
     books: Vec<String>,
     list_state: ListState,
     image: StatefulProtocol,
+    picker: Picker,
     layout_state: LayoutState,
 }
 
@@ -44,14 +45,21 @@ impl App {
     fn new() -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
-        let mut image = create_image().unwrap();
+        let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
+        let mut image = create_image(&picker).unwrap();
+        let image = create_image(&picker).unwrap();
 
         App {
             books: fill_list().expect("No Books"),
             list_state,
             image,
+            picker,
             layout_state: LayoutState::List,
         }
+    }
+
+    fn refresh_cover(&mut self) {
+        self.image = create_image(&self.picker).expect("cover to exist");
     }
 
     fn next(&mut self) {
@@ -193,10 +201,12 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
                 KeyCode::Down | KeyCode::Char('j') => {
                     app.next();
                     create_cover(app.selected_book().unwrap());
+                    app.refresh_cover();
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
                     app.previous();
                     create_cover(app.selected_book().unwrap());
+                    app.refresh_cover();
                 }
                 KeyCode::Enter => {
                     if let Some(book) = app.selected_book() {
@@ -212,7 +222,7 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
 fn render(frame: &mut Frame, app: &mut App) {
     match app.layout_state {
         LayoutState::List => {
-            app.image = create_image().expect("Cover image file to exist");
+            app.image = create_image(&app.picker).expect("Cover image file to exist");
             let outer_layout = Layout::default()
                 .direction(Direction::Vertical)
                 .margin(0)
@@ -250,8 +260,7 @@ fn render(frame: &mut Frame, app: &mut App) {
     }
 }
 
-fn create_image() -> Result<StatefulProtocol> {
-    let mut picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
+fn create_image(picker: &Picker) -> Result<StatefulProtocol> {
     let img = image::ImageReader::open("/tmp/cover.jpeg")?.decode()?;
     let image_state = picker.new_resize_protocol(img);
     Ok(image_state)
