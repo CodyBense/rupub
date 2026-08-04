@@ -1,3 +1,5 @@
+// TODO Implement displaying chapter text
+
 mod book;
 mod files;
 use epub::doc::EpubDoc;
@@ -30,6 +32,12 @@ struct App {
     books: Vec<String>,
     list_state: ListState,
     image: StatefulProtocol,
+    layout_state: LayoutState,
+}
+
+enum LayoutState {
+    List,
+    Reader,
 }
 
 impl App {
@@ -42,6 +50,7 @@ impl App {
             books: fill_list().expect("No Books"),
             list_state,
             image,
+            layout_state: LayoutState::List,
         }
     }
 
@@ -144,6 +153,18 @@ fn render_bottom_layer(frame: &mut Frame, outer_layout: &Rc<[Rect]>) {
     );
 }
 
+// TODO Implement
+fn redner_reader_layer(frame: &mut Frame, reader_layer: &Rc<[Rect]>) {
+    let reader_layer = Layout::default()
+        .margin(0)
+        .constraints(vec![Constraint::Fill(1)]);
+    frame.render_widget(
+        Paragraph::new("Book text goes here")
+            .block(Block::new().title("{}").bold().borders(Borders::ALL)),
+        frame.area(),
+    );
+}
+
 fn fill_list() -> std::io::Result<Vec<String>> {
     let books = files::list_books().unwrap();
     Ok(books)
@@ -165,7 +186,10 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
 
         if let Event::Key(key) = event::read()? {
             match key.code {
-                KeyCode::Char('q') => break Ok(()),
+                KeyCode::Char('q') => match app.layout_state {
+                    LayoutState::List => break Ok(()),
+                    LayoutState::Reader => app.layout_state = LayoutState::List,
+                },
                 KeyCode::Down | KeyCode::Char('j') => {
                     app.next();
                     create_cover(app.selected_book().unwrap());
@@ -176,7 +200,7 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
                 }
                 KeyCode::Enter => {
                     if let Some(book) = app.selected_book() {
-                        // open book view here
+                        app.layout_state = LayoutState::Reader;
                     }
                 }
                 _ => {}
@@ -186,20 +210,44 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
 }
 
 fn render(frame: &mut Frame, app: &mut App) {
-    app.image = create_image().expect("Cover image file to exist");
-    let outer_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(0)
-        .constraints(vec![
-            Constraint::Fill(1),
-            Constraint::Percentage(85),
-            Constraint::Fill(1),
-        ])
-        .split(frame.area());
+    match app.layout_state {
+        LayoutState::List => {
+            app.image = create_image().expect("Cover image file to exist");
+            let outer_layout = Layout::default()
+                .direction(Direction::Vertical)
+                .margin(0)
+                .constraints(vec![
+                    Constraint::Fill(1),
+                    Constraint::Percentage(85),
+                    Constraint::Fill(1),
+                ])
+                .split(frame.area());
 
-    render_top_layer(frame, &outer_layout);
-    render_middle_layer(frame, &outer_layout, app);
-    render_bottom_layer(frame, &outer_layout);
+            render_top_layer(frame, &outer_layout);
+            render_middle_layer(frame, &outer_layout, app);
+            render_bottom_layer(frame, &outer_layout);
+        }
+        // TODO Create the layout for the book reader
+        LayoutState::Reader => {
+            // let outer_layout = Layout::default()
+            //     .direction(Direction::Vertical)
+            //     .margin(0)
+            //     .constraints(vec![
+            //         Constraint::Fill(1),
+            //         Constraint::Percentage(85),
+            //         Constraint::Fill(1),
+            //     ])
+            //     .split(frame.area());
+
+            // render_top_layer(frame, &outer_layout);
+            let reader_layer = Layout::default()
+                .direction(Direction::Vertical)
+                .margin(0)
+                .constraints(vec![Constraint::Fill(1)])
+                .split(frame.area());
+            redner_reader_layer(frame, &reader_layer);
+        }
+    }
 }
 
 fn create_image() -> Result<StatefulProtocol> {
