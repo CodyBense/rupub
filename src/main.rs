@@ -1,4 +1,4 @@
-// TODO Implement displaying chapter text
+// TODO implemnt text wrap,change to scolling
 
 mod book;
 mod files;
@@ -34,6 +34,7 @@ struct App {
     image: StatefulProtocol,
     picker: Picker,
     layout_state: LayoutState,
+    doc: Option<EpubDoc<BufReader<File>>>,
 }
 
 enum LayoutState {
@@ -54,6 +55,7 @@ impl App {
             image,
             picker,
             layout_state: LayoutState::List,
+            doc: None,
         }
     }
 
@@ -160,14 +162,14 @@ fn render_bottom_layer(frame: &mut Frame, outer_layout: &Rc<[Rect]>) {
     );
 }
 
-// TODO Implement
-fn redner_reader_layer(frame: &mut Frame, reader_layer: &Rc<[Rect]>) {
+fn render_reader_layer(frame: &mut Frame, reader_layer: &Rc<[Rect]>, app: &mut App) {
+    let chapter_text =
+        book::parse_chapter_content(book::get_chapter_content(app.doc.as_mut().unwrap()));
     let reader_layer = Layout::default()
         .margin(0)
         .constraints(vec![Constraint::Fill(1)]);
     frame.render_widget(
-        Paragraph::new("Book text goes here")
-            .block(Block::new().title("{}").bold().borders(Borders::ALL)),
+        Paragraph::new(chapter_text).block(Block::new().title("{}").bold().borders(Borders::ALL)),
         frame.area(),
     );
 }
@@ -208,9 +210,28 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
                     app.refresh_cover();
                 }
                 KeyCode::Enter => {
-                    if let Some(book) = app.selected_book() {
+                    if let Some(book) = app.selected_book().cloned() {
                         app.layout_state = LayoutState::Reader;
+                        let path = format!(
+                            "/home/cody/workspaces/github/CodyBense/rupub/books/{}.epub",
+                            book
+                        );
+                        app.doc = Some(book::open_book(path.as_str()));
                     }
+                }
+                KeyCode::Left | KeyCode::Char('h') => {
+                    if let LayoutState::Reader = app.layout_state {
+                        if let Some(doc) = app.doc.as_mut() {
+                            doc.go_prev();
+                        };
+                    }
+                }
+                KeyCode::Right | KeyCode::Char('l') => {
+                    if let LayoutState::Reader = app.layout_state {
+                        if let Some(doc) = app.doc.as_mut() {
+                            doc.go_next();
+                        };
+                    };
                 }
                 _ => {}
             }
@@ -235,7 +256,6 @@ fn render(frame: &mut Frame, app: &mut App) {
             render_middle_layer(frame, &outer_layout, app);
             render_bottom_layer(frame, &outer_layout);
         }
-        // TODO Create the layout for the book reader
         LayoutState::Reader => {
             // let outer_layout = Layout::default()
             //     .direction(Direction::Vertical)
@@ -253,7 +273,7 @@ fn render(frame: &mut Frame, app: &mut App) {
                 .margin(0)
                 .constraints(vec![Constraint::Fill(1)])
                 .split(frame.area());
-            redner_reader_layer(frame, &reader_layer);
+            render_reader_layer(frame, &reader_layer, app);
         }
     }
 }
