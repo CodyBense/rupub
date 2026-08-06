@@ -25,7 +25,7 @@ use ratatui::{
     self, DefaultTerminal, Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style, Stylize},
-    widgets::{Block, Borders, List, ListDirection, ListState, Paragraph},
+    widgets::{Block, Borders, List, ListDirection, ListState, Paragraph, Wrap},
 };
 
 struct App {
@@ -35,6 +35,8 @@ struct App {
     picker: Picker,
     layout_state: LayoutState,
     doc: Option<EpubDoc<BufReader<File>>>,
+    chapter_text: String,
+    scroll_offset: u16,
 }
 
 enum LayoutState {
@@ -56,11 +58,20 @@ impl App {
             picker,
             layout_state: LayoutState::List,
             doc: None,
+            chapter_text: String::new(),
+            scroll_offset: 0,
         }
     }
 
     fn refresh_cover(&mut self) {
         self.image = create_image(&self.picker).expect("cover to exist");
+    }
+
+    fn refresh_chapter(&mut self) {
+        if let Some(doc) = self.doc.as_mut() {
+            self.chapter_text = book::parse_chapter_content(book::get_chapter_content(doc));
+        };
+        self.scroll_offset = 0;
     }
 
     fn next(&mut self) {
@@ -163,15 +174,12 @@ fn render_bottom_layer(frame: &mut Frame, outer_layout: &Rc<[Rect]>) {
 }
 
 fn render_reader_layer(frame: &mut Frame, reader_layer: &Rc<[Rect]>, app: &mut App) {
-    let chapter_text =
-        book::parse_chapter_content(book::get_chapter_content(app.doc.as_mut().unwrap()));
-    let reader_layer = Layout::default()
-        .margin(0)
-        .constraints(vec![Constraint::Fill(1)]);
-    frame.render_widget(
-        Paragraph::new(chapter_text).block(Block::new().title("{}").bold().borders(Borders::ALL)),
-        frame.area(),
-    );
+    let paragraph = Paragraph::new(app.chapter_text.clone())
+        .scroll((app.scroll_offset, 0))
+        .wrap(Wrap { trim: true })
+        .block(Block::new().title("{}").bold().borders(Borders::ALL));
+
+    frame.render_widget(paragraph, frame.area());
 }
 
 fn fill_list() -> std::io::Result<Vec<String>> {
@@ -199,16 +207,26 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
                     LayoutState::List => break Ok(()),
                     LayoutState::Reader => app.layout_state = LayoutState::List,
                 },
-                KeyCode::Down | KeyCode::Char('j') => {
-                    app.next();
-                    create_cover(app.selected_book().unwrap());
-                    app.refresh_cover();
-                }
-                KeyCode::Up | KeyCode::Char('k') => {
-                    app.previous();
-                    create_cover(app.selected_book().unwrap());
-                    app.refresh_cover();
-                }
+                KeyCode::Down | KeyCode::Char('j') => match app.layout_state {
+                    LayoutState::List => {
+                        app.next();
+                        create_cover(app.selected_book().unwrap());
+                        app.refresh_cover();
+                    }
+                    LayoutState::Reader => {
+                        app.scroll_offset = app.scroll_offset.saturating_add(1);
+                    }
+                },
+                KeyCode::Up | KeyCode::Char('k') => match app.layout_state {
+                    LayoutState::List => {
+                        app.previous();
+                        create_cover(app.selected_book().unwrap());
+                        app.refresh_cover();
+                    }
+                    LayoutState::Reader => {
+                        app.scroll_offset = app.scroll_offset.saturating_sub(1);
+                    }
+                },
                 KeyCode::Enter => {
                     if let Some(book) = app.selected_book().cloned() {
                         app.layout_state = LayoutState::Reader;
@@ -217,6 +235,7 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
                             book
                         );
                         app.doc = Some(book::open_book(path.as_str()));
+                        app.refresh_chapter();
                     }
                 }
                 KeyCode::Left | KeyCode::Char('h') => {
@@ -224,6 +243,7 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
                         if let Some(doc) = app.doc.as_mut() {
                             doc.go_prev();
                         };
+                        app.refresh_chapter();
                     }
                 }
                 KeyCode::Right | KeyCode::Char('l') => {
@@ -231,6 +251,7 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
                         if let Some(doc) = app.doc.as_mut() {
                             doc.go_next();
                         };
+                        app.refresh_chapter();
                     };
                 }
                 _ => {}
