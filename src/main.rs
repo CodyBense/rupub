@@ -5,18 +5,20 @@ mod files;
 use epub::doc::EpubDoc;
 use image::DynamicImage;
 use ratatui_image::{
-    StatefulImage,
+    Resize, StatefulImage,
     picker::Picker,
     protocol::{Protocol, StatefulProtocol},
+    thread::{ResizeRequest, ResizeResponse, ThreadProtocol},
 };
 use scraper::{Html, Selector};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::{
     fs::{self, File},
     io::BufReader,
     path::PathBuf,
     rc::Rc,
     slice::from_raw_parts,
-    vec,
+    thread, vec,
 };
 
 use color_eyre::Result;
@@ -31,12 +33,13 @@ use ratatui::{
 struct App {
     books: Vec<String>,
     list_state: ListState,
-    image: StatefulProtocol,
+    image: ThreadProtocol,
     picker: Picker,
     layout_state: LayoutState,
     doc: Option<EpubDoc<BufReader<File>>>,
     chapter_text: String,
     scroll_offset: u16,
+    resize_tx: Sender<ResizeRequest>,
 }
 
 enum LayoutState {
@@ -44,12 +47,18 @@ enum LayoutState {
     Reader,
 }
 
+enum AppEvent {
+    Term(Event),
+    CoverReady(ResizeResponse),
+}
+
 impl App {
-    fn new() -> Self {
+    fn new(resize_tx: Sender<ResizeRequest>) -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
         let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
-        let image = create_image(&picker).unwrap();
+        let raw = create_image(&picker).unwrap();
+        let image = ThreadProtocol::new(resize_tx.clone(), Some(raw));
 
         App {
             books: fill_list().expect("No Books"),
@@ -60,11 +69,14 @@ impl App {
             doc: None,
             chapter_text: String::new(),
             scroll_offset: 0,
+            resize_tx,
         }
     }
 
     fn refresh_cover(&mut self) {
-        self.image = create_image(&self.picker).expect("cover to exist");
+        if let Ok(raw) = create_image(&self.picker) {
+            self.image = ThreadProtocol::new(self.resize_tx.clone(), Some(raw))
+        }
     }
 
     fn refresh_chapter(&mut self) {
@@ -153,7 +165,11 @@ fn render_middle_layer(frame: &mut Frame, outer_layout: &Rc<[Rect]>, app: &mut A
         .map(|book| format!("Selected: {}\n\nBook content would go here...", book))
         .unwrap_or_else(|| "No book selected".to_string());
 
-    frame.render_stateful_widget(StatefulImage::default(), middle_layout[1], &mut app.image);
+    frame.render_stateful_widget(
+        StatefulImage::default().resize(Resize::Scale((None))),
+        middle_layout[1],
+        &mut app.image,
+    );
 }
 
 fn render_bottom_layer(frame: &mut Frame, outer_layout: &Rc<[Rect]>) {
@@ -196,15 +212,54 @@ fn main() -> Result<()> {
 }
 
 fn run(mut terminal: DefaultTerminal) -> Result<()> {
-    let mut app = App::new();
+    let (event_tx, event_rx) = mpsc::channel::<AppEvent>();
+    let (resize_tx, resize_rx) = mpsc::channel::<ResizeRequest>();
+
+    // Forward terminal input onto the shared event channel.
+    {
+        let event_tx = event_tx.clone();
+        thread::spawn(move || {
+            loop {
+                match event::read() {
+                    Ok(ev) => {
+                        if event_tx.send(AppEvent::Term(ev)).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
+    // Background worker: does the actual resize+encode, off the UI thread.
+    {
+        let event_tx = event_tx.clone();
+        thread::spawn(move || {
+            while let Ok(request) = resize_rx.recv() {
+                let response = request.resize_encode();
+                if event_tx
+                    .send(AppEvent::CoverReady(response.unwrap()))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+    }
+
+    let mut app = App::new(resize_tx);
 
     loop {
         terminal.draw(|frame| render(frame, &mut app))?;
 
-        if let Event::Key(key) = event::read()? {
-            match key.code {
+        match event_rx.recv() {
+            Ok(AppEvent::CoverReady(response)) => {
+                app.image.update_resized_protocol(response);
+            }
+            Ok(AppEvent::Term(Event::Key(key))) => match key.code {
                 KeyCode::Char('q') => match app.layout_state {
-                    LayoutState::List => break Ok(()),
+                    LayoutState::List => return Ok(()),
                     LayoutState::Reader => app.layout_state = LayoutState::List,
                 },
                 KeyCode::Down | KeyCode::Char('j') => match app.layout_state {
@@ -242,7 +297,7 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
                     if let LayoutState::Reader = app.layout_state {
                         if let Some(doc) = app.doc.as_mut() {
                             doc.go_prev();
-                        };
+                        }
                         app.refresh_chapter();
                     }
                 }
@@ -250,14 +305,78 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
                     if let LayoutState::Reader = app.layout_state {
                         if let Some(doc) = app.doc.as_mut() {
                             doc.go_next();
-                        };
+                        }
                         app.refresh_chapter();
-                    };
+                    }
                 }
                 _ => {}
-            }
+            },
+            Ok(AppEvent::Term(_)) => {}
+            Err(_) => return Ok(()),
         }
     }
+    //     let mut app = App::new();
+
+    //     loop {
+    //         terminal.draw(|frame| render(frame, &mut app))?;
+
+    //         if let Event::Key(key) = event::read()? {
+    //             match key.code {
+    //                 KeyCode::Char('q') => match app.layout_state {
+    //                     LayoutState::List => break Ok(()),
+    //                     LayoutState::Reader => app.layout_state = LayoutState::List,
+    //                 },
+    //                 KeyCode::Down | KeyCode::Char('j') => match app.layout_state {
+    //                     LayoutState::List => {
+    //                         app.next();
+    //                         create_cover(app.selected_book().unwrap());
+    //                         app.refresh_cover();
+    //                     }
+    //                     LayoutState::Reader => {
+    //                         app.scroll_offset = app.scroll_offset.saturating_add(1);
+    //                     }
+    //                 },
+    //                 KeyCode::Up | KeyCode::Char('k') => match app.layout_state {
+    //                     LayoutState::List => {
+    //                         app.previous();
+    //                         create_cover(app.selected_book().unwrap());
+    //                         app.refresh_cover();
+    //                     }
+    //                     LayoutState::Reader => {
+    //                         app.scroll_offset = app.scroll_offset.saturating_sub(1);
+    //                     }
+    //                 },
+    //                 KeyCode::Enter => {
+    //                     if let Some(book) = app.selected_book().cloned() {
+    //                         app.layout_state = LayoutState::Reader;
+    //                         let path = format!(
+    //                             "/home/cody/workspaces/github/CodyBense/rupub/books/{}.epub",
+    //                             book
+    //                         );
+    //                         app.doc = Some(book::open_book(path.as_str()));
+    //                         app.refresh_chapter();
+    //                     }
+    //                 }
+    //                 KeyCode::Left | KeyCode::Char('h') => {
+    //                     if let LayoutState::Reader = app.layout_state {
+    //                         if let Some(doc) = app.doc.as_mut() {
+    //                             doc.go_prev();
+    //                         };
+    //                         app.refresh_chapter();
+    //                     }
+    //                 }
+    //                 KeyCode::Right | KeyCode::Char('l') => {
+    //                     if let LayoutState::Reader = app.layout_state {
+    //                         if let Some(doc) = app.doc.as_mut() {
+    //                             doc.go_next();
+    //                         };
+    //                         app.refresh_chapter();
+    //                     };
+    //                 }
+    //                 _ => {}
+    //             }
+    //         }
+    //     }
 }
 
 fn render(frame: &mut Frame, app: &mut App) {
