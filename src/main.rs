@@ -218,6 +218,7 @@ fn main() -> Result<()> {
 }
 
 fn run(mut terminal: DefaultTerminal) -> Result<()> {
+    let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
     let (event_tx, event_rx) = mpsc::channel::<AppEvent>();
     let (resize_tx, resize_rx) = mpsc::channel::<ResizeRequest>();
     let (cover_tx, cover_rx) = mpsc::channel::<String>();
@@ -257,7 +258,7 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
 
     {
         let event_tx = event_tx.clone();
-        let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
+        let picker = picker.clone();
         thread::spawn(move || {
             while let Ok(book_name) = cover_rx.recv() {
                 create_cover(&book_name);
