@@ -11,7 +11,6 @@ use ratatui_image::{
     thread::{ResizeRequest, ResizeResponse, ThreadProtocol},
 };
 use scraper::{Html, Selector};
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::{
     fs::{self, File},
     io::BufReader,
@@ -19,6 +18,10 @@ use std::{
     rc::Rc,
     slice::from_raw_parts,
     thread, vec,
+};
+use std::{
+    os::raw,
+    sync::mpsc::{self, Receiver, Sender},
 };
 
 use color_eyre::Result;
@@ -40,6 +43,7 @@ struct App {
     chapter_text: String,
     scroll_offset: u16,
     resize_tx: Sender<ResizeRequest>,
+    cover_tx: Sender<String>,
 }
 
 enum LayoutState {
@@ -50,10 +54,11 @@ enum LayoutState {
 enum AppEvent {
     Term(Event),
     CoverReady(ResizeResponse),
+    CoverLoaded(StatefulProtocol),
 }
 
 impl App {
-    fn new(resize_tx: Sender<ResizeRequest>) -> Self {
+    fn new(resize_tx: Sender<ResizeRequest>, cover_tx: Sender<String>) -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
         let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
@@ -70,6 +75,7 @@ impl App {
             chapter_text: String::new(),
             scroll_offset: 0,
             resize_tx,
+            cover_tx,
         }
     }
 
@@ -214,6 +220,7 @@ fn main() -> Result<()> {
 fn run(mut terminal: DefaultTerminal) -> Result<()> {
     let (event_tx, event_rx) = mpsc::channel::<AppEvent>();
     let (resize_tx, resize_rx) = mpsc::channel::<ResizeRequest>();
+    let (cover_tx, cover_rx) = mpsc::channel::<String>();
 
     // Forward terminal input onto the shared event channel.
     {
@@ -248,7 +255,23 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
         });
     }
 
-    let mut app = App::new(resize_tx);
+    {
+        let event_tx = event_tx.clone();
+        let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
+        thread::spawn(move || {
+            while let Ok(book_name) = cover_rx.recv() {
+                create_cover(&book_name);
+                if let Ok(raw) = create_image(&picker) {
+                    if event_tx.send(AppEvent::CoverLoaded(raw)).is_err() {
+                        break;
+                    }
+                };
+            }
+        });
+    }
+
+    let mut app = App::new(resize_tx, cover_tx.clone());
+    cover_tx.send(app.selected_book().unwrap().clone()).ok();
 
     loop {
         terminal.draw(|frame| render(frame, &mut app))?;
@@ -256,6 +279,9 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
         match event_rx.recv() {
             Ok(AppEvent::CoverReady(response)) => {
                 app.image.update_resized_protocol(response);
+            }
+            Ok(AppEvent::CoverLoaded(raw)) => {
+                app.image = ThreadProtocol::new(app.resize_tx.clone(), Some(raw))
             }
             Ok(AppEvent::Term(Event::Key(key))) => match key.code {
                 KeyCode::Char('q') => match app.layout_state {
@@ -265,8 +291,8 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
                 KeyCode::Down | KeyCode::Char('j') => match app.layout_state {
                     LayoutState::List => {
                         app.next();
-                        create_cover(app.selected_book().unwrap());
-                        app.refresh_cover();
+                        let book = app.selected_book().unwrap().clone();
+                        app.cover_tx.send(book).ok();
                     }
                     LayoutState::Reader => {
                         app.scroll_offset = app.scroll_offset.saturating_add(1);
@@ -275,8 +301,8 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
                 KeyCode::Up | KeyCode::Char('k') => match app.layout_state {
                     LayoutState::List => {
                         app.previous();
-                        create_cover(app.selected_book().unwrap());
-                        app.refresh_cover();
+                        let book = app.selected_book().unwrap().clone();
+                        app.cover_tx.send(book).ok();
                     }
                     LayoutState::Reader => {
                         app.scroll_offset = app.scroll_offset.saturating_sub(1);
