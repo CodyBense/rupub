@@ -1,4 +1,7 @@
-// TODO implemnt text wrap,change to scolling
+// TODO update file paths:
+// books: ~/.local/share/rupub/books
+// covers: ~/.cache/rupub/covers/
+// use dirs crate to avoid hard coded paths
 
 mod book;
 mod files;
@@ -342,68 +345,6 @@ fn run(mut terminal: DefaultTerminal) -> Result<()> {
             Err(_) => return Ok(()),
         }
     }
-    //     let mut app = App::new();
-
-    //     loop {
-    //         terminal.draw(|frame| render(frame, &mut app))?;
-
-    //         if let Event::Key(key) = event::read()? {
-    //             match key.code {
-    //                 KeyCode::Char('q') => match app.layout_state {
-    //                     LayoutState::List => break Ok(()),
-    //                     LayoutState::Reader => app.layout_state = LayoutState::List,
-    //                 },
-    //                 KeyCode::Down | KeyCode::Char('j') => match app.layout_state {
-    //                     LayoutState::List => {
-    //                         app.next();
-    //                         create_cover(app.selected_book().unwrap());
-    //                         app.refresh_cover();
-    //                     }
-    //                     LayoutState::Reader => {
-    //                         app.scroll_offset = app.scroll_offset.saturating_add(1);
-    //                     }
-    //                 },
-    //                 KeyCode::Up | KeyCode::Char('k') => match app.layout_state {
-    //                     LayoutState::List => {
-    //                         app.previous();
-    //                         create_cover(app.selected_book().unwrap());
-    //                         app.refresh_cover();
-    //                     }
-    //                     LayoutState::Reader => {
-    //                         app.scroll_offset = app.scroll_offset.saturating_sub(1);
-    //                     }
-    //                 },
-    //                 KeyCode::Enter => {
-    //                     if let Some(book) = app.selected_book().cloned() {
-    //                         app.layout_state = LayoutState::Reader;
-    //                         let path = format!(
-    //                             "/home/cody/workspaces/github/CodyBense/rupub/books/{}.epub",
-    //                             book
-    //                         );
-    //                         app.doc = Some(book::open_book(path.as_str()));
-    //                         app.refresh_chapter();
-    //                     }
-    //                 }
-    //                 KeyCode::Left | KeyCode::Char('h') => {
-    //                     if let LayoutState::Reader = app.layout_state {
-    //                         if let Some(doc) = app.doc.as_mut() {
-    //                             doc.go_prev();
-    //                         };
-    //                         app.refresh_chapter();
-    //                     }
-    //                 }
-    //                 KeyCode::Right | KeyCode::Char('l') => {
-    //                     if let LayoutState::Reader = app.layout_state {
-    //                         if let Some(doc) = app.doc.as_mut() {
-    //                             doc.go_next();
-    //                         };
-    //                         app.refresh_chapter();
-    //                     };
-    //                 }
-    //                 _ => {}
-    //             }
-    //         }
-    //     }
 }
 
 fn render(frame: &mut Frame, app: &mut App) {
@@ -424,17 +365,6 @@ fn render(frame: &mut Frame, app: &mut App) {
             render_bottom_layer(frame, &outer_layout);
         }
         LayoutState::Reader => {
-            // let outer_layout = Layout::default()
-            //     .direction(Direction::Vertical)
-            //     .margin(0)
-            //     .constraints(vec![
-            //         Constraint::Fill(1),
-            //         Constraint::Percentage(85),
-            //         Constraint::Fill(1),
-            //     ])
-            //     .split(frame.area());
-
-            // render_top_layer(frame, &outer_layout);
             let reader_layer = Layout::default()
                 .direction(Direction::Vertical)
                 .margin(0)
